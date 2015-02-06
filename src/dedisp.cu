@@ -1,4 +1,4 @@
-#/*
+/*
  *  Copyright 2012 Ben Barsdell
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -79,35 +79,37 @@ typedef unsigned int dedisp_word;
 
 // Define plan structure
 struct dedisp_plan_struct {
-  // Multi-GPU parameters 
-  dedisp_size  device_count;
-  // Size parameters
-  dedisp_size  dm_count;
-  dedisp_size  nchans;
-  dedisp_size  max_delay;
-  dedisp_size  gulp_size;
-  // Physical parameters
-  dedisp_float dt;
-  dedisp_float f0;
-  dedisp_float df;
+  	// Multi-GPU parameters
+  	dedisp_size  device_count;
+  	// Size parameters
+  	dedisp_size  dm_count;
+  	dedisp_size  nchans;
+  	dedisp_size  max_delay;
+  	dedisp_size  gulp_size;
+  	// Physical parameters
+  	dedisp_float dt;
+  	dedisp_float f0;
+  	dedisp_float df;
   	double mean;
 	double std_dev;
-  // Host arrays
-  std::vector<int> gpu_ids;
-  std::vector<dedisp_float> dm_list;      // size = dm_count
-  std::vector<dedisp_float> delay_table;  // size = nchans
-  std::vector<dedisp_bool>  killmask;     // size = nchans
-  std::vector<dedisp_size>  scrunch_list; // size = dm_count
-  // Device arrays //NEW: one for each GPU 
-  std::vector< thrust::device_vector<dedisp_float> > d_dm_list;
-  std::vector< thrust::device_vector<dedisp_float> > d_delay_table;
-  std::vector< thrust::device_vector<dedisp_bool> >  d_killmask;
-  std::vector< thrust::device_vector<dedisp_size> >  d_scrunch_list;
-  //StreamType stream;
-  // Scrunching parameters
-  dedisp_bool  scrunching_enabled;
-  dedisp_float pulse_width;
-  dedisp_float scrunch_tol;
+	double *mean_array;
+	double *stdev_array;
+	// Host arrays
+  	std::vector<int> gpu_ids;
+  	std::vector<dedisp_float> dm_list;      // size = dm_count
+  	std::vector<dedisp_float> delay_table;  // size = nchans
+  	std::vector<dedisp_bool>  killmask;     // size = nchans
+  	std::vector<dedisp_size>  scrunch_list; // size = dm_count
+  	// Device arrays //NEW: one for each GPU
+  	std::vector< thrust::device_vector<dedisp_float> > d_dm_list;
+  	std::vector< thrust::device_vector<dedisp_float> > d_delay_table;
+  	std::vector< thrust::device_vector<dedisp_bool> >  d_killmask;
+  	std::vector< thrust::device_vector<dedisp_size> >  d_scrunch_list;
+  	//StreamType stream;
+  	// Scrunching parameters
+  	dedisp_bool  scrunching_enabled;
+  	dedisp_float pulse_width;
+  	dedisp_float scrunch_tol;
 };
 
 //Thread argument container //NEW
@@ -124,6 +126,7 @@ struct dedisp_thread_args {
   unsigned flags;
   //Identifier for the device being used
   unsigned int device_idx;
+  dedisp_size start_pos;
 };
 
 // Private helper functions
@@ -239,11 +242,11 @@ dedisp_error dedisp_create_plan_multi(dedisp_plan* plan_,
 
   /// Initialise to NULL for safety
   *plan_ = 0;
-	
+
   if( cudaGetLastError() != cudaSuccess ) {
     throw_error(DEDISP_PRIOR_GPU_ERROR);
   }
-	
+
 	//int device_idx; //NEW
 	//cudaGetDevice(&device_idx);
 
@@ -251,27 +254,29 @@ dedisp_error dedisp_create_plan_multi(dedisp_plan* plan_,
 	if( nchans > DEDISP_MAX_NCHANS ) {
 		throw_error(DEDISP_NCHANS_EXCEEDS_LIMIT);
 	}
-	
+
 	// Force the df parameter to be negative such that
 	//   freq[chan] = f0 + chan * df.
 	df = -abs(df);
-	
+
 	dedisp_plan plan = new dedisp_plan_struct();
 	if( !plan ) {
 	  throw_error(DEDISP_MEM_ALLOC_FAILED);
 	}
-	
-	plan->gpu_ids       = gpu_ids;
-	plan->device_count  = ngpus;
-	plan->dm_count      = 0;
-	plan->nchans        = nchans;
-	plan->gulp_size     = DEDISP_DEFAULT_GULP_SIZE;
-	plan->max_delay     = 0;
-	plan->dt            = dt;
-	plan->f0            = f0;
-	plan->df            = df;
-	plan->mean 	    = mean;
-	plan->std_dev	    = std_dev;
+
+	plan->gpu_ids       	= gpu_ids;
+	plan->device_count  	= ngpus;
+	plan->dm_count      	= 0;
+	plan->nchans        	= nchans;
+	plan->gulp_size     	= DEDISP_DEFAULT_GULP_SIZE;
+	plan->max_delay     	= 0;
+	plan->dt            	= dt;
+	plan->f0            	= f0;
+	plan->df            	= df;
+	plan->mean 	    	= mean;
+	plan->std_dev	    	= std_dev;
+	plan->mean_array	= mean_array;
+	plan->stdev_array	= stdev_array;
 	//plan->stream        = 0;
 
 	//NEW: Check number of requested devices 
@@ -578,17 +583,20 @@ dedisp_float        dedisp_get_df(const dedisp_plan plan) {
 // Warning: Big mother function
 // dedispersion is called here
 dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
-                                 dedisp_size        nsamps,
-                                 const dedisp_byte* in,
-                                 dedisp_size        in_nbits,
-                                 dedisp_size        in_stride,
-                                 dedisp_byte*       out,
-                                 dedisp_size        out_nbits,
-                                 dedisp_size        out_stride,
-                                 dedisp_size        first_dm_idx,
-                                 dedisp_size        dm_count,
-				 unsigned           flags)
+                                 	dedisp_size        nsamps,
+                                 	const dedisp_byte* in,
+                                 	dedisp_size        in_nbits,
+                                 	dedisp_size        in_stride,
+                                 	dedisp_byte*       out,
+                                 	dedisp_size        out_nbits,
+                                 	dedisp_size        out_stride,
+                                 	dedisp_size        first_dm_idx,
+                                 	dedisp_size        dm_count,
+				 	unsigned           flags,
+					size_t start_pos)
 {
+
+	std::cout << "";	// to stop problems with displaying things in the editor
 
         int device_idx;
         cudaGetDevice(&device_idx);
@@ -730,12 +738,12 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 	dedisp_size unpacked_buf_stride_words = unpacked_nchan_words;
 	dedisp_size unpacked_count_padded_gulp_max =
 		nsamps_padded_gulp_max * unpacked_buf_stride_words;
-	
+
 	dedisp_size out_stride_gulp_samples  = nsamps_computed_gulp_max;
 	dedisp_size out_stride_gulp_bytes    = 
 		out_stride_gulp_samples * out_bytes_per_sample;
 	dedisp_size out_count_gulp_max       = out_stride_gulp_bytes * dm_count;
-	
+
 	// Organise device memory pointers
 	// -------------------------------
 	const dedisp_word* d_in = 0;
@@ -767,52 +775,58 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 	try { d_transposed_buf.resize(in_count_padded_gulp_max/* * 2 */); }
 	catch(...) { throw_error(DEDISP_MEM_ALLOC_FAILED); }
 	d_transposed = thrust::raw_pointer_cast(&d_transposed_buf[0]);
-	
+
 	// Note: * 2 here is for the time-scrunched copies of the data
 	try { d_unpacked_buf.resize(unpacked_count_padded_gulp_max * 2); }
 	catch(...) { throw_error(DEDISP_MEM_ALLOC_FAILED); }
 	d_unpacked = thrust::raw_pointer_cast(&d_unpacked_buf[0]);
 	// -------------------------------
-	
+
 	// The stride (in words) between differently-scrunched copies of the
 	//   unpacked data.
 	dedisp_size scrunch_stride = unpacked_count_padded_gulp_max;
 
 	// Not using subband algorithm!!
-	
+
 #ifdef USE_SUBBAND_ALGORITHM
-	
+
 	dedisp_size sb_size           = DEDISP_DEFAULT_SUBBAND_SIZE;
 	// Note: Setting these two parameters equal should balance the two steps of
 	//         the sub-band algorithm.
 	dedisp_size dm_size           = sb_size; // Ndm'
-	
+
 	dedisp_size sb_count          = plan->nchans / sb_size;
 	dedisp_size nom_dm_count      = dm_count / dm_size;
-	
+
 	thrust::device_vector<dedisp_word> d_intermediate_buf;
 	try { d_intermediate_buf.resize(nsamps_padded_gulp_max * sb_count
 	                                * nom_dm_count); }
 	catch(...) { throw_error(DEDISP_MEM_ALLOC_FAILED); }
 	dedisp_word* d_intermediate = thrust::raw_pointer_cast(&d_intermediate_buf[0]);
-	
+
 #endif //  USE_SUBBAND_ALGORITHM
-	
+
 	// TODO: Eventually re-implement streams
 	cudaStream_t stream = 0;//(cudaStream_t)plan->stream;
-	
+
 #ifdef DEDISP_BENCHMARK
 	Stopwatch copy_to_timer;
 	Stopwatch copy_from_timer;
 	Stopwatch transpose_timer;
 	Stopwatch kernel_timer;
 #endif
-	
+
+
+	double *mean_array = plan->mean_array;
+	double *stdev_array = plan->stdev_array;
+
+	thrust::device_vector<double> stdev_vector;
+	thrust::device_vector<double> mean_vector;
 	// Gulp loop
-	for( dedisp_size gulp_samp_idx=0; 
-	     gulp_samp_idx<nsamps_computed; 
+	for( dedisp_size gulp_samp_idx=0;
+	     gulp_samp_idx<nsamps_computed;
 	     gulp_samp_idx+=nsamps_computed_gulp_max ) {
-		
+
 		dedisp_size nsamps_computed_gulp = min(nsamps_computed_gulp_max,
 		                                       nsamps_computed-gulp_samp_idx);
 		dedisp_size nsamps_gulp          = nsamps_computed_gulp + plan->max_delay;
@@ -820,12 +834,72 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 		                                                DEDISP_SAMPS_PER_THREAD)
 			* DEDISP_SAMPS_PER_THREAD + plan->max_delay;
 
+		/*std::cout << "Gulp samp index: " << gulp_samp_idx << std::endl;
+		std::cout << "Nsamps gulp: " << nsamps_gulp << std::endl;
+		std::cout << "Nsamps padded gulp: " << nsamps_padded_gulp << std::endl;
+		std::cout << "Nsamps computed gulp max: " << nsamps_computed_gulp_max << std::endl;*/
+
+		// prepare mean and standard deviation arrays
+		// currently assume chunks have 16384 samples - will change from file to file
+		// need to send this value to the function
+		// need to change this later to include the highest standard deviation
+		// from all samples read in the gulp
+		// have to take device idx into account
+		// data is divided between deviced by time samples
+
+		// code from dedisp_execute
+		// size_t base_nsamps = nsamps / plan->device_count + 1;
+		// base_nsamps per device at the start
+
+		// dedisp_size current_nsamps = base_nsamps + plan->max_delay;
+		// the number of samples to be dedispersed by current thread
+
+		// if (samp_counter + current_nsamps > nsamps)
+		//	current_nsamps = nsamps - samp_counter;
+		// last device will get less samples if nsamps if not multiple of device count
+		// else samp_counter += base_nsamps
+
+		// current_in = (dedisp_byte *) in + samp_counter * in_stride;
+		// current_out = (dedisp_byte *) out + samp_counter * out_bytes_per_sample;
+		// and these are used as in and out pointers
+
+		// starting point for time samples is device index * number of time
+		// samples ber device
+
+		int nchunks = (nsamps_computed_gulp - 1) / 16384 + 1;
+
+		/*std::cout << "Number of chunks used: " << nchunks << std::endl;
+		std::cout << "Using device " << device_idx << std::endl;
+		std::cout << "Time sample starting position: " << start_pos << std::endl;
+
+		std::cin.get(); */
+
+		stdev_vector.resize(nchunks);
+		mean_vector.resize(nchunks);
+
+
+		for (int chunk_no = 0; chunk_no < nchunks; chunk_no++)
+		{
+			int array_idx = min((start_pos + gulp_samp_idx) / 16384 + chunk_no, (size_t)511);
+
+			mean_vector[chunk_no] = mean_array[array_idx];
+			stdev_vector[chunk_no] = stdev_array[array_idx];
+			//std::cout << stdev_vector[chunk_no] << " ";
+		}
+
+		//std::cin.get();
+
+		// need raw pointer cast in order to use device vector on kernel
+		// need to send size of this vector as well
+		// double *d_stdev_ptr = thrust::raw_pointer_cast(stdev_vector.data());
+		// char stdev_size = stdev_vector.size();
+
 #ifdef DEDISP_BENCHMARK
 		copy_to_timer.start();
 #endif
 		// Copy the input data from host to device if necessary
 		if( using_host_memory ) {
-			
+
 			// Allowing arbitrary byte strides means we must do a strided copy
 			if( !copy_host_to_device_2d((dedisp_byte*)d_in,
 			                            in_buf_stride_words * BYTES_PER_WORD,
@@ -926,7 +1000,9 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 		                batch_in_stride,
 		                batch_dm_stride,
 		                batch_chan_stride,
-		                batch_out_stride) ) {
+		                batch_out_stride,
+				mean_vector,
+				stdev_vector) ) {
 			throw_error(DEDISP_INTERNAL_GPU_ERROR);
 		}
 		
@@ -964,7 +1040,9 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 		                batch_in_stride,
 		                batch_dm_stride,
 		                batch_chan_stride,
-		                batch_out_stride) ) {
+		                batch_out_stride,
+				mean_vector,
+				stdev_vector) ) {
 			throw_error(DEDISP_INTERNAL_GPU_ERROR);
 		}
 #else // Use direct algorithm
@@ -1011,7 +1089,9 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 					                d_out + scrunch_start*out_stride_gulp_bytes,
 					                out_stride_gulp_samples,
 					                out_nbits,
-					                1, 0, 0, 0, 0, plan->mean, plan->std_dev) ) {
+					                1, 0, 0, 0, 0, plan->mean, plan->std_dev,
+							mean_vector,
+							stdev_vector) ) {
 						throw_error(DEDISP_INTERNAL_GPU_ERROR);
 					}
 					scrunch_offset += scrunch_stride / cur_scrunch;
@@ -1034,7 +1114,9 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 			                d_out,
 			                out_stride_gulp_samples,
 			                out_nbits,
-			                1, 0, 0, 0, 0, plan->mean, plan->std_dev) ) {
+			                1, 0, 0, 0, 0, plan->mean, plan->std_dev,
+					mean_vector,
+					stdev_vector) ) {
 				throw_error(DEDISP_INTERNAL_GPU_ERROR);
 			}
 		}
@@ -1126,7 +1208,8 @@ dedisp_error dedisp_execute_adv(const dedisp_plan  plan,
                                 dedisp_byte*       out,
                                 dedisp_size        out_nbits,
                                 dedisp_size        out_stride,
-                                unsigned           flags)
+                                unsigned           flags,
+				size_t			start_pos)
 {
 	dedisp_size first_dm_idx = 0;
 	dedisp_size dm_count = plan->dm_count;
@@ -1134,7 +1217,7 @@ dedisp_error dedisp_execute_adv(const dedisp_plan  plan,
 	                           in, in_nbits, in_stride,
 	                           out, out_nbits, out_stride,
 	                           first_dm_idx, dm_count,
-	                           flags);
+	                           flags, start_pos);
 }
 
 //NEW: This function provides an interface for guru or adv calls 
@@ -1142,22 +1225,23 @@ dedisp_error dedisp_execute_adv(const dedisp_plan  plan,
 void *dedisp_execute_thread(void *args)
 {
   struct dedisp_thread_args *params = (struct dedisp_thread_args*) args;
-  
+
   dedisp_error err = dedisp_set_device(params->device_idx);
   if (err != DEDISP_NO_ERROR) {
     dedisp_destroy_plan(params->plan);
     return (void*) err;
   }
-  err = dedisp_execute_adv(params->plan,
-                           params->nsamps,
-                           params->in,
-                           params->in_nbits,
-                           params->in_stride,
-                           params->out,
-                           params->out_nbits,
-                           params->out_stride,
-                           params->flags);
-  return (void *)err;
+	err = dedisp_execute_adv(params->plan,
+                           	params->nsamps,
+                           	params->in,
+                           	params->in_nbits,
+                           	params->in_stride,
+                           	params->out,
+                           	params->out_nbits,
+                           	params->out_stride,
+                           	params->flags,
+				params->start_pos);
+  	return (void *)err;
 }
 
 // TODO: Consider having the user specify nsamps_computed instead of nsamps
@@ -1169,11 +1253,11 @@ dedisp_error dedisp_execute(const dedisp_plan  plan,
                             dedisp_size        out_nbits,
                             unsigned           flags)
 {
-	
+
 	enum {
 		BITS_PER_BYTE = 8
 	};
-	
+
 	cout << "DEDISP: Dedispersing on "<<plan->device_count<<" GPUs" << endl;
 
 	//NEW: define threads for multi GPU execution
@@ -1182,11 +1266,11 @@ dedisp_error dedisp_execute(const dedisp_plan  plan,
 	dedisp_error retval;
 	std::vector<pthread_t> threads;
 	threads.resize(plan->device_count);
-		
+
        	// Note: The default out_stride is nsamps - plan->max_delay
 	dedisp_size out_bytes_per_sample =
 	  out_nbits / (sizeof(dedisp_byte) * BITS_PER_BYTE);
-	
+
 	// Note: Must be careful with integer division
 	dedisp_size in_stride =
 	  plan->nchans * in_nbits / (sizeof(dedisp_byte) * BITS_PER_BYTE);
@@ -1200,9 +1284,9 @@ dedisp_error dedisp_execute(const dedisp_plan  plan,
 	dedisp_size current_nsamps;
 	dedisp_byte* current_in;
 	dedisp_byte* current_out;
-	
 
-	for (ii = 0; ii < plan->device_count; ii++) 
+
+	for (ii = 0; ii < plan->device_count; ii++)
 	{
 		//dedisp_set_device(ii);
 		//NEW: increment pointers to point at start of thread block
@@ -1217,6 +1301,10 @@ dedisp_error dedisp_execute(const dedisp_plan  plan,
 		else
 			samp_counter += base_nsamps;
 
+		/*std::cout << "Device " << ii << std::endl;
+		std::cout << "Current nsamps: " << current_nsamps << std::endl;
+		std::cin.get();*/
+
 		dedisp_thread_args* args = new dedisp_thread_args();
 		args->plan       = plan;
 		args->nsamps     = current_nsamps;
@@ -1228,6 +1316,7 @@ dedisp_error dedisp_execute(const dedisp_plan  plan,
 		args->out_stride = out_stride;
 		args->flags      = flags;
 		args->device_idx = plan->gpu_ids[ii];
+		args->start_pos  = ii * base_nsamps;
 
 		//NEW: Spawn a thread by calling interface function 
 		pthread_create(&threads[ii], NULL, dedisp_execute_thread, (void *) args);

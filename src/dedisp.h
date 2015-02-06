@@ -442,7 +442,8 @@ dedisp_error dedisp_execute_adv(const dedisp_plan  plan,
                                 dedisp_byte*       out,
                                 dedisp_size        out_nbits,
                                 dedisp_size        out_stride,
-                                unsigned           flags);
+                                unsigned           flags,
+				size_t			start_pos);
 /*! \p dedisp_execute_guru executes a plan to dedisperse the given array of data.
  *  \warning This function is experimental and may contain bugs.
  *  \bug This function cannot be used in conjunction with adaptive time
@@ -498,7 +499,8 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
                                  dedisp_size        out_stride,
                                  dedisp_size        first_dm_idx,
                                  dedisp_size        dm_count,
-                                 unsigned           flags);
+                                 unsigned           flags,
+					size_t		start_pos);
 
 // TODO: CHECK THE STATUS OF THIS FEATURE
 /*! \p dedisp_sync waits until all previous plan executions have completed
