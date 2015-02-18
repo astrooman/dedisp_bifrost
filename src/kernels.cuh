@@ -133,7 +133,7 @@ T scale_output(SumType sum, dedisp_size nchans, double mean, double std_dev) {
 	//         (and will adapt linearly to changes in in/out_nbits or nchans)
 	//float factor = (3.f * 1024.f) / 255.f / 16.f;
         //float factor = 350.f;
-	float scaled = ((float)sum - (float)mean)/(float)std_dev * (float)32 + (float)64;
+	float scaled = ((float)sum - (float)mean)/(float)std_dev * (float)32.0 + (float)64.0;
 	//float scaled = ((float)sum - (float)131072)/(float)103.02 * (float)32 + (float)64;
 	//scaled -=64.f*factor-127.f;
         // Clip to range when necessary
@@ -190,7 +190,8 @@ void dedisperse_kernel(const dedisp_word*  d_in,
 		       double		   mean,
 		       double		   std_dev,
 			double 			*means_ptr,
-			double			*stdevs_ptr)
+			double			*stdevs_ptr,
+			unsigned int 		chunk_size)
 
 {
 	// Compute compile-time constants
@@ -325,7 +326,7 @@ void dedisperse_kernel(const dedisp_word*  d_in,
 			case 8:
                 #pragma unroll
 				for( dedisp_size s=0; s<SAMPS_PER_THREAD; ++s ) {
-					int array_idx = (int)(samp_idx * SAMPS_PER_THREAD + s) / (int)16384;
+					int array_idx = (int)(samp_idx * SAMPS_PER_THREAD + s) / (int)chunk_size;
 					double mean_c = means_ptr[array_idx];
 					double stdev = stdevs_ptr[array_idx];
 					if( samp_idx*SAMPS_PER_THREAD + s < nsamps )
@@ -391,7 +392,8 @@ bool dedisperse(const dedisp_word*  d_in,				// main dedispersion function
 		double 		    mean,
 		double 		    std_dev,
 		thrust::device_vector<double> means,
-		thrust::device_vector<double> stdevs) {
+		thrust::device_vector<double> stdevs,
+		unsigned int		chunk_size) {
 	enum {
 		BITS_PER_BYTE            = 8,
 		BYTES_PER_WORD           = sizeof(dedisp_word) / sizeof(dedisp_byte),
@@ -561,7 +563,8 @@ bool dedisperse(const dedisp_word*  d_in,				// main dedispersion function
 									 mean,							\
 									 std_dev,	\
 									 means_ptr, \
-									 stdevs_ptr)
+									 stdevs_ptr, \
+									 chunk_size)
 	// Note: Here we dispatch dynamically on nbits for supported values
 	if( use_texture_mem ) {
 		switch( in_nbits ) {

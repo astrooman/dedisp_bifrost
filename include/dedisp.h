@@ -157,6 +157,7 @@ dedisp_error dedisp_create_plan(dedisp_plan* plan,
 				double	     std_dev,
 				double *mean_array,
 				double *stdev_array,
+				double chunk_size,
 				std::vector<int> gpu_ids);
 
 /*! \p dedisp_create_plan_multi builds a new plan object using the given parameters
@@ -184,6 +185,7 @@ dedisp_error dedisp_create_plan_multi(dedisp_plan* plan,
 				      	double       std_dev,
 					double *mean_array,
 					double *stdev_array,
+					double chunk_size,
 				      	dedisp_size  ngpus,
 				      	std::vector<int> gpu_ids);
 

@@ -94,6 +94,7 @@ struct dedisp_plan_struct {
 	double std_dev;
 	double *mean_array;
 	double *stdev_array;
+	unsigned int chunk_size;
 	// Host arrays
   	std::vector<int> gpu_ids;
   	std::vector<dedisp_float> dm_list;      // size = dm_count
@@ -235,6 +236,7 @@ dedisp_error dedisp_create_plan_multi(dedisp_plan* plan_,
 				      double std_dev,
 					double* mean_array,
 					double* stdev_array,
+					double chunk_size,
 				      dedisp_size ngpus,
 				      std::vector<int> gpu_ids)
 {
@@ -277,6 +279,7 @@ dedisp_error dedisp_create_plan_multi(dedisp_plan* plan_,
 	plan->std_dev	    	= std_dev;
 	plan->mean_array	= mean_array;
 	plan->stdev_array	= stdev_array;
+	plan->chunk_size	= chunk_size;
 	//plan->stream        = 0;
 
 	//NEW: Check number of requested devices 
@@ -355,10 +358,11 @@ dedisp_error dedisp_create_plan(dedisp_plan* plan,
 				double std_dev,
 				double* mean_array,
 				double* stdev_array,
+				double chunk_size,
 				std::vector<int> gpu_ids)
 {
   return dedisp_create_plan_multi(plan, nchans, dt, f0, df, mean, std_dev, mean_array, stdev_array,
-					1, gpu_ids);
+					chunk_size, 1, gpu_ids);
 }
 
 dedisp_error dedisp_set_gulp_size(dedisp_plan plan,
@@ -820,6 +824,8 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 	double *mean_array = plan->mean_array;
 	double *stdev_array = plan->stdev_array;
 
+	unsigned int chunk_size = plan->chunk_size;
+
 	thrust::device_vector<double> stdev_vector;
 	thrust::device_vector<double> mean_vector;
 	// Gulp loop
@@ -866,7 +872,7 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 		// starting point for time samples is device index * number of time
 		// samples ber device
 
-		int nchunks = (nsamps_computed_gulp - 1) / 16384 + 1;
+		int nchunks = (nsamps_computed_gulp - 1) / chunk_size + 1;
 
 		/*std::cout << "Number of chunks used: " << nchunks << std::endl;
 		std::cout << "Using device " << device_idx << std::endl;
@@ -880,7 +886,7 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 
 		for (int chunk_no = 0; chunk_no < nchunks; chunk_no++)
 		{
-			int array_idx = min((start_pos + gulp_samp_idx) / 16384 + chunk_no, (size_t)511);
+			int array_idx = min((start_pos + gulp_samp_idx) / chunk_size + chunk_no, (size_t)511);
 
 			mean_vector[chunk_no] = mean_array[array_idx];
 			stdev_vector[chunk_no] = stdev_array[array_idx];
@@ -1002,7 +1008,8 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 		                batch_chan_stride,
 		                batch_out_stride,
 				mean_vector,
-				stdev_vector) ) {
+				stdev_vector,
+				chunk_size) ) {
 			throw_error(DEDISP_INTERNAL_GPU_ERROR);
 		}
 		
@@ -1042,7 +1049,8 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 		                batch_chan_stride,
 		                batch_out_stride,
 				mean_vector,
-				stdev_vector) ) {
+				stdev_vector,
+				chunk_size) ) {
 			throw_error(DEDISP_INTERNAL_GPU_ERROR);
 		}
 #else // Use direct algorithm
@@ -1091,7 +1099,8 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 					                out_nbits,
 					                1, 0, 0, 0, 0, plan->mean, plan->std_dev,
 							mean_vector,
-							stdev_vector) ) {
+							stdev_vector,
+							chunk_size) ) {
 						throw_error(DEDISP_INTERNAL_GPU_ERROR);
 					}
 					scrunch_offset += scrunch_stride / cur_scrunch;
@@ -1116,7 +1125,8 @@ dedisp_error dedisp_execute_guru(const dedisp_plan  plan,
 			                out_nbits,
 			                1, 0, 0, 0, 0, plan->mean, plan->std_dev,
 					mean_vector,
-					stdev_vector) ) {
+					stdev_vector,
+					chunk_size) ) {
 				throw_error(DEDISP_INTERNAL_GPU_ERROR);
 			}
 		}
