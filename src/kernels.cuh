@@ -31,7 +31,7 @@
 #include <thrust/transform.h> // For scrunch_x2
 #include <thrust/iterator/counting_iterator.h>
 
-// Kernel tuning parameters	
+// Kernel tuning parameters
 #define DEDISP_BLOCK_SIZE       256	// total number of blocks
 #define DEDISP_BLOCK_SAMPS      8 // blockDim.x
 #define DEDISP_SAMPS_PER_THREAD 2 // 4
@@ -133,7 +133,13 @@ T scale_output(SumType sum, dedisp_size nchans, double mean, double std_dev) {
 	//         (and will adapt linearly to changes in in/out_nbits or nchans)
 	//float factor = (3.f * 1024.f) / 255.f / 16.f;
         //float factor = 350.f;
+
+	// use this as a general scaling
 	float scaled = ((float)sum - (float)mean)/(float)std_dev * (float)32.0 + (float)64.0;
+
+	// if 16 bits output is used
+	//float scaled = sum / 4;
+
 	//float scaled = ((float)sum - (float)131072)/(float)103.02 * (float)32 + (float)64;
 	//scaled -=64.f*factor-127.f;
         // Clip to range when necessary
@@ -266,9 +272,9 @@ void dedisperse_kernel(const dedisp_word*  d_in,
 
 					//	dedisp_word sample[2];		// remove this array - may cause kernel to choke
 
-					//	sample[1] = tex1Dfetch(t_in_2, offset_check);				
+					//	sample[1] = tex1Dfetch(t_in_2, offset_check);
 
-					dedisp_word sample = tex1Dfetch(t_in, offset + s + delay);				
+					dedisp_word sample = tex1Dfetch(t_in, offset + s + delay);
 
 
 						sum[s] +=
@@ -306,7 +312,7 @@ void dedisperse_kernel(const dedisp_word*  d_in,
 					for( dedisp_size s=0; s<SAMPS_PER_THREAD; ++s ) {
 						// Grab the word containing the sample from global mem
 						dedisp_word sample = d_in[offset + s + delay];
-						
+
 						// Extract the desired subword and accumulate
 						sum[s] +=
 							c_killmask[chan_idx] *
@@ -315,7 +321,7 @@ void dedisperse_kernel(const dedisp_word*  d_in,
 				}
 			}
 		}
-		
+
 		// Write sums to global mem
 		// Note: This is ugly, but easy, and doesn't hurt performance
 		dedisp_size out_idx = ( samp_idx*SAMPS_PER_THREAD +
@@ -461,7 +467,7 @@ bool dedisperse(const dedisp_word*  d_in,				// main dedispersion function
 	//		if ( input_words < MAX_CUDA_1D_TEXTURE_SIZE ) 
 	//		{
 	//			d_in_1 = d_in;
-	//			d_in_2 = d_in; //+ MAX_CUDA_1D_TEXTURE_SIZE; //* sizeof(dedisp_word);  // device pointer to area which skips all the data from first pointer
+	//			d_in_2 = d_in; //+ MAX_CUDA_1D_TEXTURE_SIZE; // sizeof(dedisp_word);  // device pointer to area which skips all the data from first pointer
 	//		} else
 	//		{
 	//			d_in_1 = d_in;
@@ -477,8 +483,8 @@ bool dedisperse(const dedisp_word*  d_in,				// main dedispersion function
 			
 	//		printf("Reminder: %d\n", reminder);
 
-			// binding textures
-			cudaBindTexture( 0, t_in, d_in, channel_desc, input_words * sizeof(dedisp_word));
+			//binding textures
+	cudaBindTexture( 0, t_in, d_in, channel_desc, input_words * sizeof(dedisp_word));
 			//cudaBindTexture( 0, t_in_2, d_in_2, channel_desc, reminder * sizeof(dedisp_word));			
 			// return false;
 //		} else {
@@ -538,6 +544,8 @@ bool dedisperse(const dedisp_word*  d_in,				// main dedispersion function
 	
 	cudaStream_t stream = 0;
 	
+	//cout << "Executing the dedispersion kernel" << endl;
+	//cout << "out_nbits = " << out_nbits << endl;
 	// Execute the kernel
 #define DEDISP_CALL_KERNEL(NBITS, USE_TEXTURE_MEM)						\
 	dedisperse_kernel<NBITS,DEDISP_SAMPS_PER_THREAD,BLOCK_DIM_X,        \

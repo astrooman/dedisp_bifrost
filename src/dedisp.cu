@@ -1270,6 +1270,8 @@ dedisp_error dedisp_execute(const dedisp_plan  plan,
 
 	cout << "DEDISP: Dedispersing on "<<plan->device_count<<" GPUs" << endl;
 
+	cout << out_nbits << endl;
+
 	//NEW: define threads for multi GPU execution
 	//NEW: Each thread relates to a single cuda device
 	int ii;
