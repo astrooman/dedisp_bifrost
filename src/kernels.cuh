@@ -135,7 +135,7 @@ T scale_output(SumType sum, dedisp_size nchans, double mean, double std_dev) {
         //float factor = 350.f;
 
 	// use this as a general scaling
-	float scaled = ((float)sum - (float)mean)/(float)std_dev * (float)32.0 + (float)128.0;
+	float scaled = ((float)sum - (float)mean)/(float)std_dev * (float)32.0 + (float)64.0;
 
 	// if 16 bits output is used
 	//float scaled = sum / 4;
